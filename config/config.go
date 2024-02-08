@@ -24,6 +24,7 @@ type Config struct {
 	// Will only run once if set to 0
 	SyncPeriod     time.Duration `mapstructure:"sync_period"`
 	ListenInternal string        `mapstructure:"listen_internal"`
+	SmartlockID    int64         `mapstructure:"smartlock_id"`
 }
 
 const (

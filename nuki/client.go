@@ -11,10 +11,10 @@ import (
 
 	nukiclient "github.com/leonnicolas/gooki/nuki/client"
 	"github.com/leonnicolas/gooki/nuki/client/account_user"
+	"github.com/leonnicolas/gooki/nuki/client/smartlock_auth"
 	"github.com/leonnicolas/gooki/nuki/models"
 )
 
-// var log = logrus.New().WithField("package", "nuki")
 var ErrUserNotFound = errors.New("user not found")
 
 type Client struct {
@@ -72,12 +72,30 @@ func NewCachedDefault(bearerToken string) *CachedClient {
 }
 
 type CachedClient struct {
-	mux        sync.Mutex
 	client     *Client
 	nukiClient *nukiclient.NukiAPI
 	beareToken string
 
-	userCache map[string]*User
+	mux                sync.Mutex
+	userCache          map[string]*User
+	mux0               sync.Mutex
+	smartlockAuthCache map[int32]*models.SmartlockAuth
+}
+
+func (c *CachedClient) CreateSmartlockAuth(ctx context.Context, sa *models.SmartlocksAuthCreate) error {
+	if err := c.client.CreateSmartlockAuth(ctx, sa); err != nil {
+		return err
+	}
+	c.mux0.Lock()
+	defer c.mux0.Unlock()
+	c.smartlockAuthCache[sa.AccountUserID] = &models.SmartlockAuth{
+		AccountUserID:   sa.AccountUserID,
+		AllowedWeekDays: sa.AllowedWeekDays,
+		Name:            sa.Name,
+		Type:            sa.Type,
+		RemoteAllowed:   sa.RemoteAllowed,
+	}
+	return nil
 }
 
 func (c *CachedClient) CreateUser(ctx context.Context, u *User) (*User, error) {
@@ -102,8 +120,54 @@ func (c *CachedClient) DeleteUser(ctx context.Context, u *User) error {
 	return nil
 }
 
+// CreateSmartlockAuth is async
+func (c *Client) CreateSmartlockAuth(ctx context.Context, sa *models.SmartlocksAuthCreate) error {
+	log.WithField("name", *sa.Name).Debug("creating smart lock auth")
+	_, err := c.nukiClient.SmartlockAuth.SmartlocksAuthsResourcePutPut(
+		&smartlock_auth.SmartlocksAuthsResourcePutPutParams{
+			Context: ctx,
+			Body:    sa,
+		},
+		httptransport.BearerToken(c.beareToken),
+	)
+	return err
+}
+
+func (c *CachedClient) FindSmartlockAuth(ctx context.Context, smartlockID int64, accoutnUserId int32) (*models.SmartlockAuth, error) {
+	log := log.WithField("accoutnUserId", accoutnUserId).WithField("smartlockID", smartlockID)
+	if c.smartlockAuthCache != nil {
+		if u, ok := c.smartlockAuthCache[accoutnUserId]; ok {
+			return u, nil
+		}
+		return nil, ErrUserNotFound
+	}
+	c.mux0.Lock()
+	defer c.mux0.Unlock()
+
+	c.smartlockAuthCache = make(map[int32]*models.SmartlockAuth)
+
+	userFindRes, err := c.nukiClient.SmartlockAuth.SmartlockAuthsResourceGetGet(
+		&smartlock_auth.SmartlockAuthsResourceGetGetParams{
+			SmartlockID: smartlockID,
+			Types:       ptr("0"),
+			Context:     ctx,
+		},
+		httptransport.BearerToken(c.beareToken),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get smart lock auths: %w", err)
+	}
+	log.WithField("count", len(userFindRes.Payload)).Debug("found smart lock auths")
+
+	for _, u := range userFindRes.Payload {
+		c.smartlockAuthCache[u.AccountUserID] = u
+	}
+	return c.FindSmartlockAuth(ctx, smartlockID, accoutnUserId)
+}
+
 func (c *CachedClient) FindUserByEmail(ctx context.Context, email string) (*User, error) {
-	log := log.WithField("email", email)
+	log := log.WithField("operation", "find user").WithField("cache", true).WithField("email", email)
+
 	if c.userCache != nil {
 		if u, ok := c.userCache[email]; ok {
 			return u, nil
@@ -206,8 +270,3 @@ func (c *Client) FindUserByEmail(ctx context.Context, email string) (*User, erro
 
 	return (*User)(userFindRes.Payload[0]), nil
 }
-
-//	CreateUser(User) (User, error)
-//	FindUserByEmail(string) (User, error)
-//	UpdateUser(User) (User, error)
-//	DeleteUser(User) error
