@@ -7,6 +7,7 @@ import (
 	"github.com/leonnicolas/gooki/config"
 	"github.com/leonnicolas/gooki/google"
 	"github.com/leonnicolas/gooki/nuki"
+	"github.com/leonnicolas/gooki/nuki/models"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -14,6 +15,8 @@ import (
 type Client interface {
 	CreateUser(context.Context, *nuki.User) (*nuki.User, error)
 	FindUserByEmail(context.Context, string) (*nuki.User, error)
+	FindSmartlockAuth(ctx context.Context, smartlockID int64, accountUserID int32) (*models.SmartlockAuth, error)
+	CreateSmartlockAuth(context.Context, *models.SmartlocksAuthCreate) error
 	DeleteUser(context.Context, *nuki.User) error
 }
 
@@ -115,6 +118,12 @@ func (s *syncGSuite) SyncUsers(ctx context.Context, query string) error {
 		uu, _ := s.aws.FindUserByEmail(ctx, u.PrimaryEmail)
 		if uu != nil {
 			ll.Debug("user exists")
+			if s.cfg.SmartlockID == 0 {
+				continue
+			}
+			if err := s.createAuthUser(ctx, uu); err != nil {
+				log.WithError(err).Error("failed to create auth user")
+			}
 			continue
 		}
 
@@ -126,9 +135,35 @@ func (s *syncGSuite) SyncUsers(ctx context.Context, query string) error {
 		if err != nil {
 			return err
 		}
+		if s.cfg.SmartlockID == 0 {
+			continue
+		}
+		if err := s.createAuthUser(ctx, uu); err != nil {
+			log.WithError(err).Error("failed to create auth user")
+		}
 
 	}
 
+	return nil
+}
+
+func (s *syncGSuite) createAuthUser(ctx context.Context, u *nuki.User) error {
+	_, err := s.aws.FindSmartlockAuth(ctx, s.cfg.SmartlockID, *u.AccountUserID)
+	if err != nil && err != nuki.ErrUserNotFound {
+		return err
+	}
+	if err == nuki.ErrUserNotFound {
+		err := s.aws.CreateSmartlockAuth(ctx, &models.SmartlocksAuthCreate{
+			AccountUserID: *u.AccountUserID,
+			SmartlockIds:  []int64{s.cfg.SmartlockID},
+			RemoteAllowed: ptr(true),
+			Type:          0,
+			Name:          u.Name,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to create smartlock auth %w", err)
+		}
+	}
 	return nil
 }
 
