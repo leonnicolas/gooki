@@ -31,16 +31,16 @@ type SyncGSuite interface {
 }
 
 type syncGSuite struct {
-	aws    Client
-	google google.Client
-	cfg    *config.Config
+	nukiclient Client
+	google     google.Client
+	cfg        *config.Config
 }
 
 func New(cfg *config.Config, a Client, g google.Client) SyncGSuite {
 	return &syncGSuite{
-		aws:    a,
-		google: g,
-		cfg:    cfg,
+		nukiclient: a,
+		google:     g,
+		cfg:        cfg,
 	}
 }
 
@@ -69,8 +69,7 @@ func DoSync(ctx context.Context, cfg *config.Config) error {
 	return nil
 }
 
-func (s *syncGSuite) SyncUsers(ctx context.Context, query string) error {
-	log := log.WithField("syncing", "users")
+func (s *syncGSuite) removeDeletedUsers(ctx context.Context) error {
 	log.Debug("get deleted users")
 	deletedUsers, err := s.google.GetDeletedUsers()
 	if err != nil {
@@ -82,7 +81,7 @@ func (s *syncGSuite) SyncUsers(ctx context.Context, query string) error {
 		log := log.WithField("email", u.PrimaryEmail)
 		log.Info("deleting google user")
 
-		uu, err := s.aws.FindUserByEmail(ctx, u.PrimaryEmail)
+		uu, err := s.nukiclient.FindUserByEmail(ctx, u.PrimaryEmail)
 		if err != nuki.ErrUserNotFound && err != nil {
 			log.Warn("Error deleting google user")
 			return err
@@ -92,13 +91,16 @@ func (s *syncGSuite) SyncUsers(ctx context.Context, query string) error {
 			log.Debug("User already deleted")
 			continue
 		}
-		err = s.aws.DeleteUser(ctx, uu)
+		err = s.nukiclient.DeleteUser(ctx, uu)
 		if err != nil {
 			log.Warn("Error deleting user")
 			return err
 		}
 	}
+	return nil
+}
 
+func (s *syncGSuite) SyncNewUsers(ctx context.Context, query string) error {
 	log.Debug("get active google users")
 	googleUsers, err := s.google.GetUsers(query)
 	if err != nil {
@@ -108,29 +110,32 @@ func (s *syncGSuite) SyncUsers(ctx context.Context, query string) error {
 	log.Debug("found google users count=", len(googleUsers))
 
 	for _, u := range googleUsers {
+		ll := log.WithField("email", u.PrimaryEmail)
 		if s.ignoreUser(u.PrimaryEmail) {
+			ll.Debug("ignoring user")
 			continue
 		}
 
-		ll := log.WithField("email", u.PrimaryEmail)
-
 		ll.Debug("finding user")
-		uu, _ := s.aws.FindUserByEmail(ctx, u.PrimaryEmail)
+		uu, err := s.nukiclient.FindUserByEmail(ctx, u.PrimaryEmail)
+		if err != nil && err != nuki.ErrUserNotFound {
+			return fmt.Errorf("failed to find user: %w", err)
+		}
 		if uu != nil {
 			ll.Debug("user exists")
 			if s.cfg.SmartlockID == 0 {
 				continue
 			}
 			if err := s.createAuthUser(ctx, uu); err != nil {
-				log.WithError(err).Error("failed to create auth user")
+				ll.WithError(err).Error("failed to create auth user")
 			}
 			continue
 		}
 
 		ll.Info("creating user")
-		uu, err := s.aws.CreateUser(ctx, &nuki.User{
+		uu, err = s.nukiclient.CreateUser(ctx, &nuki.User{
 			Email: &u.PrimaryEmail,
-			Name:  ptr(fmt.Sprintf("%s %s", u.Name.GivenName, u.Name.FamilyName)),
+			Name:  ptr(u.Name.DisplayName),
 		})
 		if err != nil {
 			return err
@@ -138,22 +143,35 @@ func (s *syncGSuite) SyncUsers(ctx context.Context, query string) error {
 		if s.cfg.SmartlockID == 0 {
 			continue
 		}
+		ll.Info("creating auth user")
 		if err := s.createAuthUser(ctx, uu); err != nil {
-			log.WithError(err).Error("failed to create auth user")
+			ll.WithError(err).Error("failed to create auth user")
 		}
+	}
+	return nil
+}
 
+func (s *syncGSuite) SyncUsers(ctx context.Context, query string) error {
+	if err := s.removeDeletedUsers(ctx); err != nil {
+		log.WithError(err).Error("failed to remove deleted users")
+		return err
+	}
+
+	if err := s.SyncNewUsers(ctx, query); err != nil {
+		log.WithError(err).Error("failed to sync new users")
+		return err
 	}
 
 	return nil
 }
 
 func (s *syncGSuite) createAuthUser(ctx context.Context, u *nuki.User) error {
-	_, err := s.aws.FindSmartlockAuth(ctx, s.cfg.SmartlockID, *u.AccountUserID)
+	_, err := s.nukiclient.FindSmartlockAuth(ctx, s.cfg.SmartlockID, *u.AccountUserID)
 	if err != nil && err != nuki.ErrUserNotFound {
 		return err
 	}
 	if err == nuki.ErrUserNotFound {
-		err := s.aws.CreateSmartlockAuth(ctx, &models.SmartlocksAuthCreate{
+		err := s.nukiclient.CreateSmartlockAuth(ctx, &models.SmartlocksAuthCreate{
 			AccountUserID: *u.AccountUserID,
 			SmartlockIds:  []int64{s.cfg.SmartlockID},
 			RemoteAllowed: ptr(true),

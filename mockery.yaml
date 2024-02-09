@@ -1,0 +1,14 @@
+with-expecter: True
+inpackage: True
+dir: "{{.InterfaceDir}}"
+mockname: "Mock{{.InterfaceName}}"
+outpkg: "{{.PackageName}}"
+filename: "mock_{{.InterfaceName}}.go"
+all: false
+packages:
+  github.com/leonnicolas/gooki/sync:
+    interfaces:
+      Client:
+  github.com/leonnicolas/gooki/google:
+    interfaces:
+      Client:
