@@ -195,7 +195,7 @@ func (c *CachedClient) FindUserByEmail(ctx context.Context, email string) (*User
 		if err != nil {
 			return nil, fmt.Errorf("failed to get user %w", err)
 		}
-		log.Debug("found users", "count", len(userFindRes.Payload))
+		log.WithField("count", len(userFindRes.Payload)).Debug("found users")
 		if len(userFindRes.Payload) == 0 {
 			log.Debug("no more users found")
 			break

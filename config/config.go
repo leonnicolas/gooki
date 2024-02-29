@@ -15,11 +15,15 @@ type Config struct {
 	GoogleCredentials string `mapstructure:"google_credentials"`
 	// GoogleAdmin ...
 	GoogleAdmin string `mapstructure:"google_admin"`
-	// UserMatch ...
-	UserMatch string `mapstructure:"user_match"`
 	// Ignore users ...
-	IgnoreUsers     []string `mapstructure:"ignore_users"`
-	NukiBearerToken string   `mapstructure:"nuki_beare_token"`
+	IgnoreUsers []string `mapstructure:"ignore_users"`
+	// Query to filter users or groups depending on SyncMethod
+	Query string `mapstructure:"query"`
+	// Ignore groups ...
+	IgnoreGroups []string `mapstructure:"ignore_groups"`
+	// SyncMethod allow to defined the sync method used to get the user and groups from Google Workspace
+	SyncMethod      string `mapstructure:"sync_method"`
+	NukiBearerToken string `mapstructure:"nuki_beare_token"`
 	// SyncPeriod the timeout between two syncronizations
 	// Will only run once if set to 0
 	SyncPeriod     time.Duration `mapstructure:"sync_period"`
@@ -47,5 +51,6 @@ func New() *Config {
 		LogLevel:          DefaultLogLevel,
 		LogFormat:         DefaultLogFormat,
 		GoogleCredentials: DefaultGoogleCredentials,
+		SyncMethod:        DefaultSyncMethod,
 	}
 }

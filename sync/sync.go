@@ -8,6 +8,7 @@ import (
 	"github.com/leonnicolas/gooki/google"
 	"github.com/leonnicolas/gooki/nuki"
 	"github.com/leonnicolas/gooki/nuki/models"
+	admin "google.golang.org/api/admin/directory/v1"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -61,7 +62,7 @@ func DoSync(ctx context.Context, cfg *config.Config) error {
 	c := New(cfg, nukiClient, googleClient)
 
 	log.Info("syncing")
-	err = c.SyncUsers(ctx, cfg.UserMatch)
+	err = c.SyncUsers(ctx, cfg.Query)
 	if err != nil {
 		return err
 	}
@@ -101,10 +102,32 @@ func (s *syncGSuite) removeDeletedUsers(ctx context.Context) error {
 }
 
 func (s *syncGSuite) SyncNewUsers(ctx context.Context, query string) error {
+	var googleUsers []*admin.User
 	log.Debug("get active google users")
-	googleUsers, err := s.google.GetUsers(query)
-	if err != nil {
-		return err
+	if s.cfg.SyncMethod == config.DefaultSyncMethod {
+		log.WithField("query", query).Info("get google groups")
+		googleGroups, err := s.google.GetGroups(query)
+		if err != nil {
+			return err
+		}
+		filteredGoogleGroups := []*admin.Group{}
+		for _, g := range googleGroups {
+			if s.ignoreGroup(g.Email) {
+				log.WithField("group", g.Email).Debug("ignoring group")
+				continue
+			}
+			filteredGoogleGroups = append(filteredGoogleGroups, g)
+		}
+		googleUsers, _, err = s.getGoogleGroupsAndUsers(filteredGoogleGroups)
+		if err != nil {
+			return err
+		}
+	} else {
+		var err error
+		googleUsers, err = s.google.GetUsers(query)
+		if err != nil {
+			return err
+		}
 	}
 
 	log.Debug("found google users count=", len(googleUsers))
@@ -165,6 +188,67 @@ func (s *syncGSuite) SyncUsers(ctx context.Context, query string) error {
 	return nil
 }
 
+// getGoogleGroupsAndUsers return a list of google users members of googleGroups
+// and a map of google groups and its users' list
+func (s *syncGSuite) getGoogleGroupsAndUsers(googleGroups []*admin.Group) ([]*admin.User, map[string][]*admin.User, error) {
+	gUsers := make([]*admin.User, 0)
+	gGroupsUsers := make(map[string][]*admin.User)
+
+	gUniqUsers := make(map[string]*admin.User)
+
+	for _, g := range googleGroups {
+
+		log := log.WithFields(log.Fields{"group": g.Name})
+
+		if s.ignoreGroup(g.Email) {
+			log.Debug("ignoring group")
+			continue
+		}
+
+		log.Debug("get group members from google")
+		groupMembers, err := s.google.GetGroupMembers(g)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		log.Debug("get users")
+		membersUsers := make([]*admin.User, 0)
+
+		for _, m := range groupMembers {
+
+			if s.ignoreUser(m.Email) {
+				log.WithField("id", m.Email).Debug("ignoring user")
+				continue
+			}
+
+			log.WithField("id", m.Email).Debug("get user")
+			q := fmt.Sprintf("email:%s", m.Email)
+			u, err := s.google.GetUsers(q) // TODO: implement GetUser(m.Email)
+			if err != nil {
+				return nil, nil, err
+			}
+			if len(u) == 0 {
+				log.WithField("id", m.Email).Warn("missing user")
+				continue
+			}
+
+			membersUsers = append(membersUsers, u[0])
+
+			_, ok := gUniqUsers[m.Email]
+			if !ok {
+				gUniqUsers[m.Email] = u[0]
+			}
+		}
+		gGroupsUsers[g.Name] = membersUsers
+	}
+
+	for _, user := range gUniqUsers {
+		gUsers = append(gUsers, user)
+	}
+
+	return gUsers, gGroupsUsers, nil
+}
+
 func (s *syncGSuite) createAuthUser(ctx context.Context, u *nuki.User) error {
 	_, err := s.nukiclient.FindSmartlockAuth(ctx, s.cfg.SmartlockID, *u.AccountUserID)
 	if err != nil && err != nuki.ErrUserNotFound {
@@ -187,6 +271,16 @@ func (s *syncGSuite) createAuthUser(ctx context.Context, u *nuki.User) error {
 
 func ptr[E any](e E) *E {
 	return &e
+}
+
+func (s *syncGSuite) ignoreGroup(name string) bool {
+	for _, g := range s.cfg.IgnoreGroups {
+		if g == name {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (s *syncGSuite) ignoreUser(name string) bool {
