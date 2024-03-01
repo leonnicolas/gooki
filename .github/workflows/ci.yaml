@@ -27,6 +27,16 @@ jobs:
     - run: make generate-all
     - run: git diff --exit-code
 
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v1
+      with:
+        go-version: '1.21'
+    - run: make unit
+
+
   push:
     name: docker build and push images
     needs: build
