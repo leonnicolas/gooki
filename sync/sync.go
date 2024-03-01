@@ -70,45 +70,24 @@ func DoSync(ctx context.Context, cfg *config.Config) error {
 	return nil
 }
 
-func (s *syncGSuite) removeDeletedUsers(ctx context.Context) error {
+func (s *syncGSuite) deletedUsers(ctx context.Context) ([]*admin.User, error) {
 	log.Debug("get deleted users")
 	deletedUsers, err := s.google.GetDeletedUsers()
 	if err != nil {
 		log.Warn("Error Getting Deleted Users", "error", err.Error())
-		return err
+		return nil, err
 	}
-
-	for _, u := range deletedUsers {
-		log := log.WithField("email", u.PrimaryEmail)
-		log.Info("deleting google user")
-
-		uu, err := s.nukiclient.FindUserByEmail(ctx, u.PrimaryEmail)
-		if err != nuki.ErrUserNotFound && err != nil {
-			log.Warn("Error deleting google user")
-			return err
-		}
-
-		if err == nuki.ErrUserNotFound {
-			log.Debug("User already deleted")
-			continue
-		}
-		err = s.nukiclient.DeleteUser(ctx, uu)
-		if err != nil {
-			log.Warn("Error deleting user")
-			return err
-		}
-	}
-	return nil
+	return deletedUsers, nil
 }
 
-func (s *syncGSuite) SyncNewUsers(ctx context.Context, query string) error {
+func (s *syncGSuite) googleUsers(ctx context.Context, query string) ([]*admin.User, error) {
 	var googleUsers []*admin.User
 	log.Debug("get active google users")
 	if s.cfg.SyncMethod == config.DefaultSyncMethod {
 		log.WithField("query", query).Info("get google groups")
 		googleGroups, err := s.google.GetGroups(query)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		filteredGoogleGroups := []*admin.Group{}
 		for _, g := range googleGroups {
@@ -120,22 +99,30 @@ func (s *syncGSuite) SyncNewUsers(ctx context.Context, query string) error {
 		}
 		googleUsers, _, err = s.getGoogleGroupsAndUsers(filteredGoogleGroups)
 		if err != nil {
-			return err
+			return nil, err
 		}
 	} else {
 		var err error
 		googleUsers, err = s.google.GetUsers(query)
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 
 	log.Debug("found google users count=", len(googleUsers))
+	return googleUsers, nil
+}
 
+func (s *syncGSuite) createNukiUsers(ctx context.Context, googleUsers []*admin.User) error {
 	for _, u := range googleUsers {
 		ll := log.WithField("email", u.PrimaryEmail)
 		if s.ignoreUser(u.PrimaryEmail) {
 			ll.Debug("ignoring user")
+			continue
+		}
+
+		if u.Suspended {
+			//	deletedUsers = append(deletedUsers, u)
 			continue
 		}
 
@@ -175,16 +162,54 @@ func (s *syncGSuite) SyncNewUsers(ctx context.Context, query string) error {
 }
 
 func (s *syncGSuite) SyncUsers(ctx context.Context, query string) error {
-	if err := s.removeDeletedUsers(ctx); err != nil {
-		log.WithError(err).Error("failed to remove deleted users")
+	deletedUsers, err := s.deletedUsers(ctx)
+	if err != nil {
+		return err
+	}
+	googleUsers, err := s.googleUsers(ctx, query)
+	if err != nil {
 		return err
 	}
 
-	if err := s.SyncNewUsers(ctx, query); err != nil {
+	if err := s.createNukiUsers(ctx, googleUsers); err != nil {
 		log.WithError(err).Error("failed to sync new users")
 		return err
 	}
 
+	for _, u := range googleUsers {
+		if u.Suspended {
+			deletedUsers = append(deletedUsers, u)
+		}
+	}
+
+	if err := s.deleteUsers(ctx, deletedUsers); err != nil {
+		return fmt.Errorf("failed to delete nuki users: %w", err)
+	}
+
+	return nil
+}
+
+func (s *syncGSuite) deleteUsers(ctx context.Context, googleUsers []*admin.User) error {
+	for _, u := range googleUsers {
+		log := log.WithField("email", u.PrimaryEmail)
+		log.Info("deleting google user")
+
+		uu, err := s.nukiclient.FindUserByEmail(ctx, u.PrimaryEmail)
+		if err != nuki.ErrUserNotFound && err != nil {
+			log.Warn("Error deleting google user")
+			return err
+		}
+
+		if err == nuki.ErrUserNotFound {
+			log.Debug("User already deleted")
+			continue
+		}
+		err = s.nukiclient.DeleteUser(ctx, uu)
+		if err != nil {
+			log.Warn("Error deleting user")
+			return err
+		}
+	}
 	return nil
 }
 

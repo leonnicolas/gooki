@@ -92,18 +92,21 @@ func TestCreateUsers(t *testing.T) {
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			if scenario.tc == nil {
+				c := config.New()
+				c.SyncMethod = "users"
 				scenario.tc = &testConfig{
-					config.New(),
+					c,
 					&MockClient{},
 					&google.MockClient{},
 				}
 			}
 			scenario.expectations(scenario.tc)
+			scenario.tc.google.On("GetDeletedUsers").Return([]*admin.User{}, nil)
 
 			sync := &syncGSuite{scenario.tc.nuki, scenario.tc.google, scenario.tc.cfg}
 
 			ctx := context.Background()
-			err := sync.SyncNewUsers(ctx, query)
+			err := sync.SyncUsers(ctx, query)
 			if err != nil {
 				if scenario.expectedErr == "" {
 					t.Errorf("unexpected error removing deleted users: %v", err)
@@ -201,18 +204,21 @@ func TestRemoveDeletedUsers(t *testing.T) {
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			if scenario.tc == nil {
+				c := config.New()
+				c.SyncMethod = "users"
 				scenario.tc = &testConfig{
-					config.New(),
+					c,
 					&MockClient{},
 					&google.MockClient{},
 				}
 			}
 			scenario.expectations(scenario.tc)
+			scenario.tc.google.On("GetUsers", "").Return([]*admin.User{}, nil)
 
 			sync := &syncGSuite{scenario.tc.nuki, scenario.tc.google, scenario.tc.cfg}
 
 			ctx := context.Background()
-			err := sync.removeDeletedUsers(ctx)
+			err := sync.SyncUsers(ctx, "")
 			if err != nil {
 				if scenario.expectedErr == "" {
 					t.Errorf("unexpected error removing deleted users: %v", err)
