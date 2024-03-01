@@ -3,8 +3,8 @@
 build:
 	CGO_ENABLED=0 go build .
 
-nuki/swagger.json:
-	curl -o - https://api.nuki.io/static/swagger/swagger.json | sed 's/"int"/"integer"/' > $@
+nuki/swagger.json: nuki/patch.json
+	curl -o - https://api.nuki.io/static/swagger/swagger.json | sed 's/"int"/"integer"/' | go run github.com/evanphx/json-patch/cmd/json-patch -p ./nuki/patch.json | jq > $@
 
 generate:
 	go generate ./...

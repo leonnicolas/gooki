@@ -7,6 +7,7 @@ toolchain go1.21.0
 require (
 	github.com/campoy/embedmd v1.0.0
 	github.com/deepmap/oapi-codegen v1.16.2
+	github.com/evanphx/json-patch v0.5.2
 	github.com/go-openapi/errors v0.21.0
 	github.com/go-openapi/runtime v0.27.1
 	github.com/go-openapi/strfmt v0.22.0
