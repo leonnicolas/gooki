@@ -1,7 +1,14 @@
-.PHONY: generate build mocks unit
+.PHONY: generate build build-all mocks unit
+
+ALL_ARCH := amd64 arm arm64
 
 build:
 	CGO_ENABLED=0 go build .
+
+build-all:
+	for arch in $(ALL_ARCH); do \
+		GOOS=linux GOARCH=$$arch CGO_ENABLED=0 go build -o bin/linux/$$arch/gooki .; \
+	done
 
 nuki/swagger.json: nuki/patch.json
 	curl -o - https://api.nuki.io/static/swagger/swagger.json | sed 's/"int"/"integer"/' | go run github.com/evanphx/json-patch/cmd/json-patch -p ./nuki/patch.json | jq > $@
