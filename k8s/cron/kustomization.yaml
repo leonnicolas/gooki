@@ -1,0 +1,27 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+labels:
+- includeSelectors: true
+  pairs:
+    app.kubernetes.io/part-of: gooki
+
+resources:
+  - manifests/cron.yaml
+
+configMapGenerator:
+- name: gooki-config
+  files:
+  - manifests/configs/gooki.config
+
+secretGenerator:
+- name: gooki-google
+  files:
+  - manifests/secrets/google.json
+- name: gooki-secret
+  envs:
+  - manifests/secrets/gooki.config
+
+images:
+- name: ghcr.io/leonnicolas/gooki
+  newTag: latest

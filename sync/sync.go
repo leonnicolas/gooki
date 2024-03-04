@@ -122,7 +122,6 @@ func (s *syncGSuite) createNukiUsers(ctx context.Context, googleUsers []*admin.U
 		}
 
 		if u.Suspended {
-			//	deletedUsers = append(deletedUsers, u)
 			continue
 		}
 

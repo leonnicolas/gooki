@@ -1,0 +1,45 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  labels:
+    app.kubernetes.io/name: gooki
+  name: gooki
+spec:
+  concurrencyPolicy: Forbid
+  schedule: "0,15,30,45 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: sync
+              image: ghcr.io/leonnicolas/gooki
+              command:
+                - /bin/gooki
+              args:
+                - --google-admin=$(GOOGLE_ADMIN)
+                - --google-credentials=/config/google.json
+                - --query=$(QUERY)
+                - --smartlock-id=0
+                - --sync-method=groups
+              envFrom:
+                - configMapRef:
+                    name: gooki-config
+                - secretRef:
+                    name: gooki-secret
+              volumeMounts:
+                - name: google-credentials
+                  mountPath: /config
+                  readOnly: true
+              resources:
+                requests:
+                  memory: 100M
+                  cpu: 50m
+                limits:
+                  memory: 500M
+                  cpu: 200m
+          volumes:
+            - name: google-credentials
+              secret:
+                secretName: gooki-google
