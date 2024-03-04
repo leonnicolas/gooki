@@ -194,7 +194,7 @@ func addFlags(cmd *cobra.Command, cfg *config.Config) {
 	rootCmd.Flags().StringVarP(&cfg.Query, "query", "q", "", "Google Workspace filter query parameter, example: 'name:John* email:admin*', see: https://developers.google.com/admin-sdk/directory/v1/guides/search-users and https://developers.google.com/admin-sdk/directory/v1/guides/search-groups")
 	rootCmd.Flags().StringSliceVar(&cfg.IgnoreGroups, "ignore-groups", []string{}, "ignores these Google Workspace groups")
 	rootCmd.Flags().StringVarP(&cfg.SyncMethod, "sync-method", "s", config.DefaultSyncMethod, "Sync method to use (users_groups|groups)")
-	rootCmd.Flags().StringVarP(&cfg.NukiBearerToken, "nuki-token", "t", "", "Nuki Bearer Token for authentication with the nuki API.")
+	rootCmd.Flags().StringVarP(&cfg.NukiBearerToken, "nuki-token", "t", os.Getenv("NUKI_API_TOKEN"), "Nuki Bearer Token for authentication with the nuki API.")
 	rootCmd.Flags().Int64Var(&cfg.SmartlockID, "smartlock-id", 0, "Nuki Smartlock ID; if 0 no smartlock auths will be created.")
 	rootCmd.Flags().DurationVarP(&cfg.SyncPeriod, "sync-period", "p", 0, "Time between two syncronizations, will only run once if set to 0")
 	rootCmd.Flags().StringVar(&cfg.ListenInternal, "listen", ":8080", "Address to listen on for internal server")
