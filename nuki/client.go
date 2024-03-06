@@ -227,7 +227,7 @@ func (c *Client) CreateUser(ctx context.Context, u *User) (*User, error) {
 		httptransport.BearerToken(c.beareToken),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get user %w", err)
+		return nil, fmt.Errorf("failed to create user %w", err)
 	}
 
 	return (*User)(userCreateRes.Payload), nil

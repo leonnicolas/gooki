@@ -142,9 +142,17 @@ func (s *syncGSuite) createNukiUsers(ctx context.Context, googleUsers []*admin.U
 		}
 
 		ll.Info("creating user")
+		name := u.Name.DisplayName
+		if name == "" {
+			name = u.Name.FullName
+		}
+		if name == "" {
+			log.Warn("skipping user without name")
+			continue
+		}
 		uu, err = s.nukiclient.CreateUser(ctx, &nuki.User{
 			Email: &u.PrimaryEmail,
-			Name:  ptr(u.Name.DisplayName),
+			Name:  ptr(name),
 		})
 		if err != nil {
 			return err
